@@ -17,7 +17,7 @@ go mod tidy
 Pour exécuter l'application, utilisez la commande suivante dans le terminal :
 
 ```
-go run cmd/root.go <nom_utilisateur>
+go run main.go <nom_utilisateur>
 ```
 
 Remplacez `<nom_utilisateur>` par le nom d'utilisateur GitHub dont vous souhaitez voir l'activité.
@@ -25,7 +25,7 @@ Remplacez `<nom_utilisateur>` par le nom d'utilisateur GitHub dont vous souhaite
 ## Exemples
 
 ```
-go run cmd/root.go octocat
+go run main.go octocat
 ```
 
 Cela affichera l'activité récente de l'utilisateur `octocat`.
