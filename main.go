@@ -8,127 +8,153 @@ import (
 	"time"
 )
 
+// Commit représente un commit GitHub dans un événement de type PushEvent.
+type Commit struct {
+	Sha    string `json:"sha"`    // Identifiant du commit (SHA)
+	Author struct {
+		Name string `json:"name"` // Nom de l'auteur du commit
+	} `json:"author"`
+	Message string `json:"message"` // Message du commit
+}
+
+// Actor représente l'acteur qui a effectué l'événement sur GitHub (utilisateur).
 type Actor struct {
-	ID           int    `json:"id"`
-	Login        string `json:"login"`
-	DisplayLogin string `json:"display_login"`
-	GravatarID   string `json:"gravatar_id"`
-	URL          string `json:"url"`
-	AvatarURL    string `json:"avatar_url"`
+	Login string `json:"login"` // Nom d'utilisateur de l'acteur
 }
 
+// Repo représente un dépôt GitHub sur lequel l'événement a eu lieu.
 type Repo struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name string `json:"name"` // Nom du dépôt
 }
 
-type Member struct {
-	Login             string `json:"login"`
-	ID                int    `json:"id"`
-	NodeID            string `json:"node_id"`
-	AvatarURL         string `json:"avatar_url"`
-	GravatarID        string `json:"gravatar_id"`
-	URL               string `json:"url"`
-	HTMLURL           string `json:"html_url"`
-	FollowersURL      string `json:"followers_url"`
-	FollowingURL      string `json:"following_url"`
-	GistsURL          string `json:"gists_url"`
-	StarredURL        string `json:"starred_url"`
-	SubscriptionsURL  string `json:"subscriptions_url"`
-	OrganizationsURL  string `json:"organizations_url"`
-	ReposURL          string `json:"repos_url"`
-	EventsURL         string `json:"events_url"`
-	ReceivedEventsURL string `json:"received_events_url"`
-	Type              string `json:"type"`
-	UserViewType      string `json:"user_view_type"`
-	SiteAdmin         bool   `json:"site_admin"`
-}
-
+// Payload représente la charge utile d'un événement GitHub.
+// Cela peut inclure l'action effectuée ainsi que les commits pour un PushEvent.
 type Payload struct {
-	Member Member `json:"member"`
-	Action string `json:"action"`
+	Action  string   `json:"action"`  // Action effectuée (ex. "added", "removed")
+	Commits []Commit `json:"commits"` // Liste des commits dans un PushEvent
 }
 
+// Event représente un événement GitHub générique.
 type Event struct {
-	ID        string  `json:"id"`
-	Type      string  `json:"type"`
-	Actor     Actor   `json:"actor"`
-	Repo      Repo    `json:"repo"`
-	Payload   Payload `json:"payload"`
-	Public    bool    `json:"public"`
-	CreatedAt string  `json:"created_at"`
+	Type      string  `json:"type"`      // Type d'événement (ex. "PushEvent")
+	Actor     Actor   `json:"actor"`     // Acteur ayant réalisé l'événement
+	Repo      Repo    `json:"repo"`      // Dépôt concerné par l'événement
+	Payload   Payload `json:"payload"`   // Charge utile de l'événement
+	CreatedAt string  `json:"created_at"` // Date de création de l'événement
 }
 
-type lineEventOutput struct {
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-	Repo      struct {
-		Name string `json:"name"`
-	} `json:"repo"`
-	Action string `json:"action"`
+// LineEventOutput représente l'événement sous une forme plus simple à afficher.
+type LineEventOutput struct {
+	Type      string    `json:"type"`      // Type d'événement
+	CreatedAt time.Time `json:"created_at"` // Date de création formatée de l'événement
+	RepoName  string    `json:"repo_name"`  // Nom du dépôt
+	Action    string    `json:"action"`     // Action effectuée dans l'événement
+	Commits   []Commit  `json:"commits"`    // Liste des commits pour un PushEvent
 }
 
-// main est le point d'entrée du programme
+// fetchGitHubEvents récupère les événements d'un utilisateur GitHub à partir de l'API.
+func fetchGitHubEvents(username string) ([]Event, error) {
+	// Construction de l'URL de l'API GitHub pour récupérer les événements de l'utilisateur
+	apiURL := fmt.Sprintf("https://api.github.com/users/%s/events", username)
+
+	// Envoi de la requête HTTP GET à GitHub
+	resp, err := http.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch GitHub events: %w", err)
+	}
+	defer resp.Body.Close() // Assurez-vous de fermer la réponse à la fin
+
+	// Vérification du code de statut HTTP
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("non-200 response from GitHub API: %s", resp.Status)
+	}
+
+	// Décodage de la réponse JSON dans une slice d'événements
+	var events []Event
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON: %w", err)
+	}
+	return events, nil
+}
+
+// parseGitHubEvents transforme les événements récupérés en une forme plus simple pour l'affichage.
+func parseGitHubEvents(events []Event) []LineEventOutput {
+	var parsedEvents []LineEventOutput
+
+	// Pour chaque événement GitHub
+	for _, event := range events {
+		// Conversion de la date en format time.Time
+		createdAt, err := time.Parse(time.RFC3339, event.CreatedAt)
+		if err != nil {
+			// Si la date est mal formatée, ignorer cet événement
+			fmt.Printf("Error parsing time for event (%s): %v\n", event.Type, err)
+			continue
+		}
+		// Ajouter l'événement transformé dans la liste des événements parsés
+		parsedEvents = append(parsedEvents, LineEventOutput{
+			Type:      event.Type,
+			CreatedAt: createdAt,
+			RepoName:  event.Repo.Name,
+			Action:    event.Payload.Action,
+			Commits:   event.Payload.Commits, // Ajouter les commits si c'est un PushEvent
+		})
+	}
+
+	return parsedEvents
+}
+
+// displayEvents affiche les événements GitHub sous une forme lisible.
+func displayEvents(events []LineEventOutput) {
+	// Titre pour la sortie des événements
+	fmt.Println("GitHub Events Summary:")
+	fmt.Println("======================")
+	// Parcours de chaque événement et affichage de ses détails
+	for _, event := range events {
+		// Affichage des informations de base de l'événement
+		fmt.Printf("- %s | %s | Repo: %s | Action: %s\n",
+			event.Type,
+			event.CreatedAt.Format("2006-01-02 15:04:05"), // Format de date lisible
+			event.RepoName,
+			event.Action,
+		)
+
+		// Si des commits sont associés à cet événement (ex. PushEvent), on les affiche
+		if len(event.Commits) > 0 {
+			fmt.Println("  Commits:")
+			for _, commit := range event.Commits {
+				// Affichage des détails de chaque commit
+				fmt.Printf("    - %s: %s (%s)\n",
+					commit.Sha[:7],          // Afficher seulement les 7 premiers caractères du SHA
+					commit.Message,
+					commit.Author.Name,      // Auteur du commit
+				)
+			}
+		}
+	}
+}
+
+// main est le point d'entrée du programme. Il récupère les événements GitHub pour un utilisateur.
 func main() {
-	// Vérifie que l'utilisateur a fourni un nom d'utilisateur en argument de la ligne de commande
+	// Vérifie que l'utilisateur a fourni un nom d'utilisateur via la ligne de commande
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: github-cli <username>")
-		return
+		os.Exit(1)
 	}
 
 	// Récupère le nom d'utilisateur depuis les arguments de la ligne de commande
 	username := os.Args[1]
-	// Construit l'URL de l'API GitHub pour récupérer les événements de l'utilisateur
-	url := fmt.Sprintf("https://api.github.com/users/%s/events", username)
 
-	// Fait une requête HTTP GET à l'URL
-	resp, err := http.Get(url)
+	// Récupère les événements GitHub de l'utilisateur
+	events, err := fetchGitHubEvents(username)
 	if err != nil {
-		fmt.Println("Error making request:", err)
-		return
-	}
-	// Ferme le corps de la réponse à la fin de la fonction
-	defer resp.Body.Close()
-
-	// Vérifie que le code de statut de la réponse est 200 OK
-	if resp.StatusCode != http.StatusOK {
-		fmt.Println("Error: received non-200 response code")
-		return
+		// Si une erreur survient, affiche un message et quitte le programme
+		fmt.Printf("Error fetching events: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Décode la réponse JSON en une slice d'interfaces vides
-	var events []Event
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-		fmt.Println("Error decoding response:", err)
-		return
-	}
+	// Parse les événements récupérés pour les transformer en une forme simple à afficher
+	parsedEvents := parseGitHubEvents(events)
 
-	var eventOutput []lineEventOutput
-	// Affiche chaque événement
-	for _, event := range events {
-		if event.Type == "PushEvent" {
-			eventOutput = append(eventOutput, lineEventOutput{
-				Type: event.Type,
-				CreatedAt: func() time.Time {
-					t, err := time.Parse(time.RFC3339, event.CreatedAt)
-					if err != nil {
-						fmt.Println("Error parsing time:", err)
-					}
-					return t
-				}(),
-				Repo: struct {
-					Name string `json:"name"`
-				}{
-					Name: event.Repo.Name,
-				},
-				Action: event.Payload.Action,
-			})
-		}
-	}
-
-	// Affiche toutes les ligne d'événements trouvés
-	for _, event := range eventOutput {
-		fmt.Println(event.Type, event.CreatedAt, event.Repo.Name, event.Action)
-	}
+	// Affiche les événements parsés
+	displayEvents(parsedEvents)
 }
